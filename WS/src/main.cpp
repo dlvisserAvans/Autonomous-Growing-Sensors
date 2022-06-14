@@ -41,6 +41,13 @@ void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
 void do_send_data(osjob_t* j);
 
+// { 0xST, 0xTM, 0xTM, 0xHM, 0xBR, 0xBR, 0xPR, 0xPR, 0xEB }
+// ST = Sensor Type
+// TM = temperature
+// HM = Humidity
+// BR = Brightness
+// PR = Precipitation
+// EB = End Byte - Required for Techtenna connection
 static byte mydata[] = {SENSORTYPE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
 static osjob_t sendjob;
 
