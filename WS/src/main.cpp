@@ -38,30 +38,32 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <arduino_lmic_hal_boards.h>
+
+#include <DFRobot_B_LUX_V30B.h>
+#include <Adafruit_AM2315.h>
 #include <ArduinoLowPower.h>
 
-#include <I2CSoilMoistureSensor.h>
+// Clock code
 
-#include <Wire.h>
+#include <ThreeWire.h>  
+#include <RtcDS1302.h>
 
-// Include libraries for DS18B20 temperature sensor
-#include <OneWire.h>
-#include <DallasTemperature.h>
+ThreeWire myWire(9,A5,A4); // IO, SCLK, CE
+RtcDS1302<ThreeWire> rtc(myWire);
 
-// Data wire is connected to port 2
-#define ONE_WIRE_BUS 11
+// Weather Station Code
+byte SENSORTYPE = 0x02;
 
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
-DeviceAddress gsTemperatureSensor;
+Adafruit_AM2315 am2315;
+DFRobot_B_LUX_V30B sen0390(13, 12, 11);//The sensor chip is set to 13 pins, SCL and SDA adopt default configuration
 
-static byte sensorType = 0x01;
+volatile bool awake = false;
+const int REED_PIN = 10;
+int count = 0;
 
-void printTemperature(DeviceAddress);
-
-I2CSoilMoistureSensor soilSensor;
-const int soilMinValue = 260;
-const int soilMaxValue = 600;
+const int sleepTime = 30000;
+int timeBeforeSleep;
+volatile bool interrupted = false;
 
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
@@ -100,20 +102,15 @@ static const u1_t PROGMEM APPKEY[16] = { 0x3D, 0x1B, 0x56, 0x99, 0xC4, 0x0D, 0xF
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
 void do_send(osjob_t* j);
+void do_send_data(osjob_t* j);
 
-// { 0xST, 0xTM, 0xTM, 0xSM, 0xSV, 0xSV, 0xEB }
-// ST = Sensor Type
-// TM = temperature
-// SM = Soil Moisture
-// SV = Suction Voltage
-// EB = End Byte - Required for Techtenna connection
-static byte mydata[] = { sensorType, 0x01, 0x77, 0x64, 0x00, 0x00, 0x01};
-// static byte mydata[] = {0x02, 0x01, 0x77, 0x64, 0x07, 0xD0, 0xFF, 0xFF, 0x01};
+// static byte mydata[] = { 0x01, 0x01, 0x77, 0x64, 0x07, 0xD0, 0x01};
+static byte mydata[] = {SENSORTYPE, 0x01, 0x77, 0x64, 0x07, 0xD0, 0x00, 0x10, 0x01};
 static osjob_t sendjob;
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
-const unsigned TX_INTERVAL = 5;
+const unsigned TX_INTERVAL = 1;
 
 
 void printHex2(unsigned v) {
@@ -123,17 +120,16 @@ void printHex2(unsigned v) {
     Serial.print(v, HEX);
 }
 
-void printTemperature(DeviceAddress deviceAddress)
-{
-  int tempC = sensors.getTempC(deviceAddress);
-  int tempK = tempC + 273;
-  if (tempC == DEVICE_DISCONNECTED_C)
-  {
-    Serial.println("Error: Could not read temperature data");
-    return;
-  }
-  Serial.print("Temp K: ");
-  Serial.println(tempK);
+void putToSleep(){
+        timeBeforeSleep = rtc.GetDateTime().Epoch64Time();
+            sleepAgain:
+            int now = rtc.GetDateTime().Epoch64Time();
+            LowPower.deepSleep(sleepTime - ((now - timeBeforeSleep)* 1000));
+            if(interrupted == true){
+                interrupted = false;
+                count++;
+                goto sleepAgain;
+            }
 }
 
 void onEvent (ev_t ev) {
@@ -211,11 +207,10 @@ void onEvent (ev_t ev) {
               Serial.println(LMIC.dataLen);
               Serial.println(F(" bytes of payload"));
             }
-            digitalWrite(13, LOW);
-            LowPower.deepSleep(600000);
-            digitalWrite(13, HIGH);
+
+            putToSleep();
             // Schedule next transmission
-            os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
+            os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send_data);
             break;
         case EV_LOST_TSYNC:
             Serial.println(F("EV_LOST_TSYNC"));
@@ -253,7 +248,6 @@ void onEvent (ev_t ev) {
         case EV_JOIN_TXCOMPLETE:
             Serial.println(F("EV_JOIN_TXCOMPLETE: no JoinAccept"));
             break;
-
         default:
             Serial.print(F("Unknown event: "));
             Serial.println((unsigned) ev);
@@ -266,26 +260,49 @@ void do_send(osjob_t* j){
     if (LMIC.opmode & OP_TXRXPEND) {
         Serial.println(F("OP_TXRXPEND, not sending"));
     } else {
-        while (soilSensor.isBusy()) delay(50); // available since FW 2.3
-        Serial.print("Soil Moisture Capacitance: ");
-        int capacitance = soilSensor.getCapacitance();
-        Serial.print(capacitance); //read capacitance register
-        Serial.print(", Soil Moisture Percentage: ");
-        int soilMoisture = constrain((float)(capacitance - soilMinValue) / (float)(soilMaxValue - soilMinValue) * 100.0, 0.0, 100.0);
-        mydata[3] = soilMoisture;
-        Serial.print(soilMoisture);
-        Serial.print("%");
-        Serial.print(", Temperature: ");
-        Serial.println(soilSensor.getTemperature()/(float)10); //temperature register
-        soilSensor.sleep(); // available since FW 2.3
+        // Prepare upstream data transmission at the next possible time.
+        LMIC_setTxData2(1, mydata, sizeof(mydata)-1, 0);
+        Serial.println(F("Packet queued"));
+    }
+    // Next TX is scheduled after TX_COMPLETE event.
+}
 
-        sensors.requestTemperatures(); // Send the command to get temperatures
-        int tempKelvin = (sensors.getTempC(gsTemperatureSensor) + (float)273.155555555) * 100;
-        mydata[1] = tempKelvin >> 8 & 0xff;
-        mydata[2] = tempKelvin & 0xff;
+void precipitationInterupt() {
+  interrupted = true;
+}
 
-        // printTemperature(gsTemperatureSensor); // Use a simple function to print out the data
-    // delay(100);
+void do_send_data(osjob_t* j){
+    // Check if there is not a current TX/RX job running
+    if (LMIC.opmode & OP_TXRXPEND) {
+        Serial.println(F("OP_TXRXPEND, not sending"));
+    } else {
+
+        //  Read and print temp and hum values
+  float temperature = 20, humidity = 20;
+
+//   if (! am2315.readTemperatureAndHumidity(&temperature, &humidity)) {
+//     Serial.println("Failed to read data from AM2315");
+//     // delay(1000);
+//     return;
+//   }
+  int tempValue = (temperature + 273.15) * 100;
+  int humidValue = humidity;
+  mydata[1] = tempValue >> 8 & 0xFF;
+  mydata[2] = tempValue & 0xFF;
+  mydata[3] = humidValue;
+  // mydata[4] = humidValue >> 8;
+  Serial.print("Temp *C: "); Serial.println(temperature);
+  Serial.print("Hum %: "); Serial.println(humidity);
+
+  // Read and print light value
+  Serial.print("value: ");
+  // Serial.print(sen0390.lightStrengthLux());
+  int lightValue = sen0390.lightStrengthLux();
+  mydata[4] = lightValue >> 8 & 0xFF;
+  mydata[5] = lightValue & 0xFF;
+  Serial.println(" (lux).");
+
+  delay(2000);
 
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, mydata, sizeof(mydata)-1, 0);
@@ -294,48 +311,125 @@ void do_send(osjob_t* j){
     // Next TX is scheduled after TX_COMPLETE event.
 }
 
-void setup() {
-    delay(5000);
-    // while (! Serial)
-    //     ;
-    Serial.begin(9600);
+#define countof(a) (sizeof(a) / sizeof(a[0]))
 
+void printDateTime(const RtcDateTime& dt)
+{
+    char datestring[20];
 
-    Serial.print("millis(): ");
-    Serial.println(millis());
-    Serial.print("__TIME__: ");
+    snprintf_P(datestring, 
+            countof(datestring),
+            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
+            dt.Month(),
+            dt.Day(),
+            dt.Year(),
+            dt.Hour(),
+            dt.Minute(),
+            dt.Second() );
+    Serial.println(datestring);
+}
+
+void initialize_sensors(){
+Serial.println("Initializing temp/hum sensor...");
+    if (! am2315.begin()) {
+     Serial.println("Sensor not found, check wiring & pullups!");
+     while (1);
+    }
+
+  delay(2000);
+
+  Serial.println("Initializing light sensor...");
+  sen0390.begin();
+    // begin() does a test read, so need to wait 2secs before first read
+  delay(4000);
+}
+
+void initialize_clock(){
+    Serial.print("compiled: ");
+    Serial.print(__DATE__);
     Serial.println(__TIME__);
-    digitalWrite(13, LOW);
-    LowPower.deepSleep(5000);
-    digitalWrite(13, HIGH);
-    Serial.print("millis(): ");
-    Serial.println(millis());
-    Serial.print("__TIME__: ");
-    Serial.println(__TIME__);
-    
-    Serial.println(F("Starting"));
 
-    Wire.begin();
+    rtc.Begin();
 
-    Serial.println("Initializing soil moisture sensor...");
-    soilSensor.begin(); // reset sensor
-    delay(2000); // give some time to boot up
-    Serial.print("I2C Soil Moisture Sensor Address: ");
-    Serial.println(soilSensor.getAddress(),HEX);
-    Serial.print("Sensor Firmware version: ");
-    Serial.println(soilSensor.getVersion(),HEX);
+    RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+    printDateTime(compiled);
     Serial.println();
 
-    Serial.println("Initializing temperature sensor...");
-    sensors.begin();
+    if (!rtc.IsDateTimeValid()) 
+    {
+        // Common Causes:
+        //    1) first time you ran and the device wasn't running yet
+        //    2) the battery on the device is low or even missing
 
-    Serial.print("Found ");
-    Serial.print(sensors.getDeviceCount(), DEC);
-    Serial.println(" devices.");
+        Serial.println("rtc lost confidence in the DateTime!");
+        rtc.SetDateTime(compiled);
+    }
 
-    if (!sensors.getAddress(gsTemperatureSensor, 0)) Serial.println("Unable to find address for Device 0");
+    if (rtc.GetIsWriteProtected())
+    {
+        Serial.println("rtc was write protected, enabling writing now");
+        rtc.SetIsWriteProtected(false);
+    }
 
-    sensors.setResolution(gsTemperatureSensor, 9);
+    if (!rtc.GetIsRunning())
+    {
+        Serial.println("rtc was not actively running, starting now");
+        rtc.SetIsRunning(true);
+    }
+
+    RtcDateTime now = rtc.GetDateTime();
+    Serial.println("now: ");
+    printDateTime(now);
+    Serial.println("compiled: ");
+    printDateTime(compiled);
+    // rtc.SetDateTime(compiled);
+    if (now < compiled) 
+    {
+        Serial.println("rtc is older than compile time!  (Updating DateTime)");
+        rtc.SetDateTime(compiled);
+    }
+    else if (now > compiled) 
+    {
+        Serial.println("rtc is newer than compile time. (this is expected)");
+    }
+    else if (now == compiled) 
+    {
+        Serial.println("rtc is the same as compile time! (not expected but all is fine)");
+    }
+}
+
+
+
+void setup() {
+    delay(5000);
+    while (! Serial)
+        ;
+    Serial.begin(9600);
+    Serial.println(F("Starting"));
+
+    // initialize_sensors();
+
+    pinMode(REED_PIN, INPUT_PULLUP);
+    LowPower.attachInterruptWakeup(REED_PIN, precipitationInterupt, FALLING);  
+
+    initialize_clock();
+
+    // LowPower.deepSleep(30000);    
+
+    // Serial.println("");
+
+    // Serial.println("NOW - BEFORE");
+    // Serial.println(now - before);
+
+    // Serial.println("SLEEPTIME - NOW - BEFORE");
+
+    // Serial.println( sleepTime - ((now - before)* 1000));
+
+    // Serial.println("Before: ");
+    // Serial.println(before);
+    // Serial.println("Now: ");
+    // Serial.println(now);
+
 
     #ifdef VCC_ENABLE
     // For Pinoccio Scout boards
@@ -384,7 +478,7 @@ void setup() {
     // https://github.com/mcci-catena/arduino-lmic/commit/42da75b56#diff-16d75524a9920f5d043fe731a27cf85aL633
     // the X/1000 means an error rate of 0.1%; the above issue discusses using values up to 10%.
     // so, values from 10 (10% error, the most lax) to 1000 (0.1% error, the most strict) can be used.
-    LMIC_setClockError(1 * MAX_CLOCK_ERROR / 40);
+    LMIC_setClockError(1 * MAX_CLOCK_ERROR / 10);
 
     LMIC_setLinkCheckMode(0);
     LMIC_setDrTxpow(DR_SF7,14);
@@ -396,7 +490,7 @@ void setup() {
 #endif
 
     // Start job (sending automatically starts OTAA too)
-    do_send(&sendjob);
+    do_send_data(&sendjob);
 }
 
 void loop() {
