@@ -3,7 +3,7 @@
 #include <SPI.h>
 #include <arduino_lmic_hal_boards.h>
 
-#include <DFRobot_B_LUX_V30B.h>
+// #include <DFRobot_B_LUX_V30B.h>
 #include <Adafruit_AM2315.h>
 #include <ArduinoLowPower.h>
 
@@ -20,13 +20,13 @@ RtcDS1302<ThreeWire> rtc(myWire);
 byte SENSORTYPE = 0x02;
 
 Adafruit_AM2315 am2315; // Connect to default SCL SDA
-DFRobot_B_LUX_V30B sen0390(13, 12, 11); // CE, SCL, SDA
+// DFRobot_B_LUX_V30B sen0390(13, 12, 11); // CE, SCL, SDA // Light sensor disabled
 
 volatile bool awake = false;
 const int RAIN_SENSOR_PIN = 10;
 int count = 0;
 
-const int sleepTime = 300000; // In milliseconds
+const int sleepTime = 3600000; // In milliseconds
 int timeBeforeSleep;
 volatile bool interrupted = false;
 
@@ -160,7 +160,7 @@ void onEvent (ev_t ev) {
               Serial.println(F(" bytes of payload"));
             }
             #endif
-
+            // Reset rain sensor counter
             count = 0;
             putToSleep();
             // Schedule next transmission
@@ -251,16 +251,16 @@ void do_send_data(osjob_t* j){
         #endif
 
         // Read light value
-        int lightValue = sen0390.lightStrengthLux();
+        // int lightValue = sen0390.lightStrengthLux(); // Light sensor disabled
 
-        #ifdef DEBUG
-        Serial.print("value: ");
-        Serial.print(lightValue);
-        Serial.print(" (lux) ");
-        #endif
+        // #ifdef DEBUG
+        // Serial.print("value: ");
+        // Serial.print(lightValue);
+        // Serial.print(" (lux) ");
+        // #endif
         
-        mydata[4] = lightValue >> 8 & 0xFF;
-        mydata[5] = lightValue & 0xFF;
+        // mydata[4] = lightValue >> 8 & 0xFF;
+        // mydata[5] = lightValue & 0xFF;
         
         #ifdef DEBUG
         Serial.print("Precipitation count: ");
@@ -293,15 +293,16 @@ void initialize_sensors(){
         #endif
     }
 
-    delay(2000);
+    delay(3000);
 
-    #ifdef DEBUG
-    Serial.println("Initializing light sensor...");
-    #endif
+    // Light sensor disabled
+    // #ifdef DEBUG
+    // Serial.println("Initializing light sensor...");
+    // #endif
 
-    sen0390.begin();
+    // sen0390.begin();
     // begin() does a test read, so need to wait 4secs before first read
-    delay(4000);
+    // delay(4000);
 }
 
 void initialize_clock(){

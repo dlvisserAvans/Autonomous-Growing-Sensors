@@ -28,15 +28,15 @@ I2CSoilMoistureSensor soilSensor;
 const int soilMinValue = 260;
 const int soilMaxValue = 600;
 
-int sleepTime = 300000; // In milliseconds 
+int sleepTime = 3600000; // In milliseconds 
 
 static const u1_t PROGMEM APPEUI[8]= { 0xCD, 0x9C, 0xC6, 0xAC, 0x23, 0xF9, 0x81, 0x60 };
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8);}
 
-static const u1_t PROGMEM DEVEUI[8]= { 0x16, 0xB0, 0x07, 0x0B, 0x31, 0xF9, 0x81, 0x60 };
+static const u1_t PROGMEM DEVEUI[8]= { 0xE2, 0xFF, 0xBB, 0xD3, 0x9D, 0xF9, 0x81, 0x60 };
 void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 
-static const u1_t PROGMEM APPKEY[16] = { 0x3D, 0x1B, 0x56, 0x99, 0xC4, 0x0D, 0xFE, 0xBE, 0x7A, 0x94, 0xAE, 0x1A, 0x88, 0x29, 0x43, 0xDB };
+static const u1_t PROGMEM APPKEY[16] = { 0x2F, 0x59, 0x75, 0x94, 0x6A, 0x5F, 0x0A, 0x50, 0x4F, 0x6A, 0x6A, 0xA2, 0x00, 0xB8, 0x20, 0x46 };
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
 void do_send(osjob_t* j);
@@ -228,6 +228,7 @@ void do_send(osjob_t* j){
 
         // Read temperature
         sensors.requestTemperatures(); // Send the command to get temperatures
+        delay(1000);
         int tempKelvin = (sensors.getTempC(gsTemperatureSensor) + (float)273.155555555) * 100;
 
         mydata[1] = tempKelvin >> 8 & 0xff;
