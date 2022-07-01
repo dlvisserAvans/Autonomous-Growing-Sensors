@@ -31,12 +31,15 @@ const int soilMaxValue = 600;
 int sleepTime = 3600000; // In milliseconds 
 
 static const u1_t PROGMEM APPEUI[8]= { 0xCD, 0x9C, 0xC6, 0xAC, 0x23, 0xF9, 0x81, 0x60 };
+// static const u1_t PROGMEM APPEUI[8]= { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8);}
 
 static const u1_t PROGMEM DEVEUI[8]= { 0xE2, 0xFF, 0xBB, 0xD3, 0x9D, 0xF9, 0x81, 0x60 };
+// static const u1_t PROGMEM DEVEUI[8]= { 0xD1, 0x15, 0x05, 0xD0, 0x7E, 0xD5, 0xB3, 0x70 };
 void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 
 static const u1_t PROGMEM APPKEY[16] = { 0x2F, 0x59, 0x75, 0x94, 0x6A, 0x5F, 0x0A, 0x50, 0x4F, 0x6A, 0x6A, 0xA2, 0x00, 0xB8, 0x20, 0x46 };
+// static const u1_t PROGMEM APPKEY[16] = { 0xEF, 0xBD, 0x66, 0x1A, 0x70, 0x58, 0xAD, 0x8A, 0xBB, 0xDA, 0xD4, 0xCA, 0x1C, 0xF2, 0xF1, 0xE1 };
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
 void do_send(osjob_t* j);
@@ -61,7 +64,7 @@ void printHex2(unsigned v) {
 
 void putToSleep(){
     digitalWrite(LED_BUILTIN, LOW);
-    LowPower.deepSleep(sleepTime);
+    LowPower.sleep(sleepTime);
     digitalWrite(LED_BUILTIN, HIGH);
 }
 
@@ -159,6 +162,7 @@ void onEvent (ev_t ev) {
 
             // Schedule next transmission
             os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
+
             break;
         case EV_LOST_TSYNC:
             #ifdef DEBUG
@@ -219,8 +223,12 @@ void do_send(osjob_t* j){
         Serial.println(F("OP_TXRXPEND, not sending"));
         #endif
     } else {
-        while (soilSensor.isBusy()) delay(50); // available since FW 2.3
+        // while (soilSensor.isBusy()) delay(50); // available since FW 2.3
         // Read soil moisture
+            // Initialize soil sensor
+        soilSensor.begin(); // reset sensor
+        delay(2000); // give some time to boot up
+
         int capacitance = soilSensor.getCapacitance();
         int soilMoisture = constrain((float)(capacitance - soilMinValue) / (float)(soilMaxValue - soilMinValue) * 100.0, 0.0, 100.0);
 
