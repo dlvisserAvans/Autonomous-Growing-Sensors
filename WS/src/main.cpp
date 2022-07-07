@@ -268,7 +268,7 @@ void do_send_data(osjob_t* j){
         #endif
 
         mydata[6] = count >> 8 & 0xFF;
-        mydata[7] = count;
+        mydata[7] = count & 0xFF;
 
         delay(2000);
 

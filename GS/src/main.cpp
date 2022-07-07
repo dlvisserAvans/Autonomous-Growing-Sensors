@@ -25,8 +25,8 @@ static byte sensorType = 0x01;
 void printTemperature(DeviceAddress);
 
 I2CSoilMoistureSensor soilSensor;
-const int soilMinValue = 260;
-const int soilMaxValue = 600;
+const int soilMinValue = 256;
+const int soilMaxValue = 540;
 
 int sleepTime = 3600000; // In milliseconds 
 
@@ -230,7 +230,8 @@ void do_send(osjob_t* j){
         delay(2000); // give some time to boot up
 
         int capacitance = soilSensor.getCapacitance();
-        int soilMoisture = constrain((float)(capacitance - soilMinValue) / (float)(soilMaxValue - soilMinValue) * 100.0, 0.0, 100.0);
+        int soilMoisture = map(capacitance, soilMinValue, soilMaxValue, 0, 100);
+        // int soilMoisture = constrain((float)(capacitance - soilMinValue) / (float)(soilMaxValue - soilMinValue) * 100.0, 0.0, 100.0);
 
         mydata[3] = soilMoisture;
 
